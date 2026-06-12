@@ -13,34 +13,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Descargar o repositorio
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Preparar Python
-        uses: actions/setup-python@42375524c55f9c85023adf32a55c30b6ca90007d # v5.4.0
-        with:
-          python-version: "3.11"
-
-      - name: Instalar dependencias
         run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 geopandas
+          git clone https://x-access-token:${{ github.token }}@github.com/${{ github.repository }} .
+          git config user.name "IRDI bot"
+          git config user.email "actions@github.com"
+
+      - name: Instalar dependencias Python
+        run: |
+          python3 -m pip install --upgrade pip
+          pip3 install requests beautifulsoup4 geopandas
 
       - name: Preparar capa municipal (só se non existe)
         run: |
           if [ ! -f data/concellos_galicia.geojson ]; then
-            python scripts/preparar_concellos.py || echo "Aviso: revisar capa municipal"
+            python3 scripts/preparar_concellos.py || echo "Aviso: revisar capa municipal"
           else
             echo "Capa municipal xa presente."
           fi
 
       - name: Actualizar datos do IRDI
-        run: python scripts/actualizar_irdi.py
+        run: python3 scripts/actualizar_irdi.py
         continue-on-error: true
 
       - name: Facer commit dos GeoJSON
         run: |
-          git config user.name "IRDI bot"
-          git config user.email "actions@github.com"
           git add data/*.geojson data/irdi_meta.json 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "Sen cambios."
