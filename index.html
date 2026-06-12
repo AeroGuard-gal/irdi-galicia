@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="gl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>IRDI Galicia · Risco diario de incendios</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --fondo: #0d141b;
+      --panel: #141e28;
+      --panel-2: #1c2936;
+      
+      --bordo: #2a3a4a;
+      --texto: #e8eef4;
+      --texto-suave: #9fb0c0;
+      --laranxa: #E8590C;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--fondo); color: var(--texto); }
+    #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+    header {
+      padding: 12px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--bordo);
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.05rem; margin: 0; font-weight: 800; letter-spacing: 0.01em; }
+    header .sub { font-size: 0.78rem; color: var(--texto-suave); }
+    .creditos { margin-left: auto; font-size: 0.72rem; color: var(--texto-suave); text-align: right; }
+    .creditos a { color: var(--laranxa); text-decoration: none; }
+
+    .dias { display: flex; gap: 6px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--bordo); overflow-x: auto; }
+    .dias button {
+      flex: 1; min-width: 92px; min-height: 46px;
+      background: var(--panel-2); color: var(--texto);
+      border: 1px solid var(--bordo); border-radius: 10px;
+      font-size: 0.85rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .dias button.activo { background: var(--laranxa); color: #fff; border-color: var(--laranxa); }
+    .dias button small { display: block; font-weight: 400; font-size: 0.68rem; opacity: 0.85; }
+
+    #map { flex: 1; background: var(--fondo); }
+
+    .lenda {
+      position: absolute; bottom: 24px; right: 12px; z-index: 1000;
+      background: rgba(20,30,40,0.92); backdrop-filter: blur(8px);
+      border: 1px solid var(--bordo); border-radius: 12px; padding: 12px 14px;
+      font-size: 0.8rem; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .lenda h4 { margin: 0 0 8px; font-size: 0.82rem; }
+    .lenda .fila { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .lenda .cor { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; }
+
+    .info-actualizacion { padding: 8px 16px; font-size: 0.74rem; color: var(--texto-suave); background: var(--panel); border-top: 1px solid var(--bordo); }
+
+    .leaflet-popup-content-wrapper { background: var(--panel); color: var(--texto); border-radius: 10px; }
+    .leaflet-popup-tip { background: var(--panel); }
+    .popup-concello { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
+    .popup-risco { font-size: 0.9rem; }
+
+    @media (max-width: 600px) {
+      .lenda { bottom: 90px; right: 8px; padding: 10px; font-size: 0.74rem; }
+      .creditos { width: 100%; text-align: left; margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div>
+        <h1>🔥 IRDI Galicia</h1>
+        <span class="sub">Índice de Risco Diario de incendios forestais</span>
+      </div>
+      <div class="creditos">
+        Fonte: <a href="https://mediorural.xunta.gal/es/temas/defensa-monte/irdi" target="_blank" rel="noopener">IRDI · Medio Rural · Xunta de Galicia</a><br>
+        Visor: VOST Galicia × ALVORA
+      </div>
+    </header>
+
+    <div class="dias" id="dias"></div>
+
+    <div id="map"></div>
+    <div class="info-actualizacion" id="info">Cargando datos…</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const NIVEIS = [
+      { v: 1, cor: '#2ECC71', txt: 'Baixo' },
+      { v: 2, cor: '#F1C40F', txt: 'Moderado' },
+      { v: 3, cor: '#E67E22', txt: 'Alto' },
+      { v: 4, cor: '#E74C3C', txt: 'Moi alto' },
+      { v: 5, cor: '#8E44AD', txt: 'Extremo' },
+    ]
+    const DIAS = [
+      { id: 'dia_1', nome: 'Hoxe' },
+      { id: 'dia_2', nome: 'Mañá' },
+      { id: 'dia_3', nome: '+2 días' },
+      { id: 'dia_4', nome: '+3 días' },
+    ]
+    // Ruta dos datos: por defecto na carpeta data/ ao lado deste ficheiro
+    const RUTA_DATOS = './data'
+
+    const map = L.map('map', { zoomControl: true }).setView([42.75, -7.9], 8)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19,
+    }).addTo(map)
+
+    let capaActual = null
+    const cache = {}
+
+    function estiloFeature(feat) {
+      const cor = feat.properties.cor || '#95A5A6'
+      return { fillColor: cor, fillOpacity: 0.65, color: '#0d141b', weight: 1 }
+    }
+
+    function onCadaFeature(feat, layer) {
+      const p = feat.properties
+      layer.bindPopup(
+        `<div class="popup-concello">${p.concello || 'Concello'}</div>` +
+        `<div class="popup-risco">Risco: <strong style="color:${p.cor}">${p.risco || 'Sen dato'}</strong></div>`
+      )
+      layer.on('mouseover', () => layer.setStyle({ weight: 2.5, fillOpacity: 0.8 }))
+      layer.on('mouseout', () => layer.setStyle({ weight: 1, fillOpacity: 0.65 }))
+    }
+
+    async function cargarDia(diaId) {
+      if (capaActual) { map.removeLayer(capaActual); capaActual = null }
+      document.getElementById('info').textContent = 'Cargando…'
+
+      let gj = cache[diaId]
+      if (!gj) {
+        try {
+          const resp = await fetch(`${RUTA_DATOS}/irdi_${diaId}.geojson`)
+          if (!resp.ok) throw new Error('non dispoñible')
+          gj = await resp.json()
+          cache[diaId] = gj
+        } catch (e) {
+          document.getElementById('info').textContent =
+            '⚠️ Non se puideron cargar os datos deste día.'
+          return
+        }
+      }
+
+      capaActual = L.geoJSON(gj, { style: estiloFeature, onEachFeature: onCadaFeature }).addTo(map)
+
+      const meta = gj.metadata || {}
+      const con = meta.con_dato != null ? ` · ${meta.con_dato} con dato` : ''
+      document.getElementById('info').innerHTML =
+        `Actualización da fonte: <strong>${meta.actualizacion || '—'}</strong>` +
+        `${con} · ${(gj.features || []).length} concellos`
+    }
+
+    // Construír botóns de días
+    const cont = document.getElementById('dias')
+    DIAS.forEach((d, i) => {
+      const b = document.createElement('button')
+      b.innerHTML = `${d.nome}<small>${d.id.replace('dia_', 'día ')}</small>`
+      b.onclick = () => {
+        document.querySelectorAll('.dias button').forEach(x => x.classList.remove('activo'))
+        b.classList.add('activo')
+        cargarDia(d.id)
+      }
+      if (i === 0) b.classList.add('activo')
+      cont.appendChild(b)
+    })
+
+    // Lenda
+    const lenda = L.control({ position: 'bottomright' })
+    lenda.onAdd = function () {
+      const div = L.DomUtil.create('div', 'lenda')
+      div.innerHTML = '<h4>Nivel de risco</h4>' +
+        NIVEIS.map(n => `<div class="fila"><span class="cor" style="background:${n.cor}"></span>${n.txt}</div>`).join('') +
+        '<div class="fila"><span class="cor" style="background:#95A5A6"></span>Sen dato</div>'
+      return div
+    }
+    lenda.addTo(map)
+
+    // Carga inicial
+    cargarDia('dia_1')
+  </script>
+</body>
+</html>
