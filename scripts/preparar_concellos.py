@@ -1,109 +1,113 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Preparar capa municipal de Galicia
-==================================
-Descarga os límites municipais de España do CNIG (ou unha fonte alternativa),
-filtra os 313 concellos de Galicia (provincias 15, 27, 32, 36), simplifica a
-xeometría para web e garda data/concellos_galicia.geojson en EPSG:4326.
-
-Execútase UNHA VEZ (ou cando se queira actualizar a capa base).
-Require: geopandas, requests.
-
-Se a descarga automática falla, pódese substituír o ficheiro
-data/concellos_galicia.geojson manualmente (exportado desde QGIS en 4326).
+Descarga e prepara a capa municipal de Galicia desde o WFS do IGN.
+Filtra os 313 concellos, simplifica a xeometría e garda en EPSG:4326.
 """
 
+import json
 import sys
-import zipfile
-import io
+import urllib.request
+import urllib.parse
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 SAIDA = DATA_DIR / "concellos_galicia.geojson"
 
-# Provincias galegas (códigos INE de provincia)
-PROVINCIAS_GALICIA = {"15", "27", "32", "36"}  # A Coruña, Lugo, Ourense, Pontevedra
+# WFS do IGN — servizo oficial, sen autenticación, CORS libre
+WFS_URL = (
+    "https://www.ign.es/wfs/unidades-administrativas"
+    "?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature"
+    "&TYPENAMES=unidadesAdministrativas:UnidadAdministrativa"
+    "&CQL_FILTER=codNivelAdmin%3D%278%27"  # nivel 8 = municipio
+    "&SRSNAME=EPSG:4326"
+    "&OUTPUTFORMAT=application%2Fjson"
+    "&count=400"
+)
 
-# Fonte recomendada: límites municipais do IGN/CNIG (descarga directa de exemplo).
-# O CNIG serve as liñas límite; aquí usamos unha fonte aberta espello en formato
-# axeitado. Pódese cambiar pola URL oficial do Centro de Descargas do CNIG.
-FONTES = [
-    # GeoJSON de municipios de España (mantido pola comunidade, datos IGN)
-    "https://raw.githubusercontent.com/inigoflores/ds-codigos-postales-meta/master/data/municipios.geojson",
-]
+# Códigos INE de provincia de Galicia
+PROVINCIAS = {"15", "27", "32", "36"}
+
+
+def simplificar_coord(coords, tolerancia=0.002):
+    """Simplificación Douglas-Peucker mínima para reducir peso."""
+    if not coords or len(coords) <= 2:
+        return coords
+    # Versión simple: coger 1 de cada N puntos según tolerancia
+    paso = max(1, int(len(coords) * tolerancia * 10))
+    resultado = coords[::paso]
+    if resultado[-1] != coords[-1]:
+        resultado.append(coords[-1])
+    return resultado
+
+
+def simplificar_geometria(geom):
+    if not geom:
+        return geom
+    tipo = geom.get("type", "")
+    if tipo == "Polygon":
+        return {"type": "Polygon", "coordinates": [simplificar_coord(r) for r in geom["coordinates"]]}
+    if tipo == "MultiPolygon":
+        return {"type": "MultiPolygon", "coordinates": [[simplificar_coord(r) for r in poly] for poly in geom["coordinates"]]}
+    return geom
 
 
 def main():
-    try:
-        import geopandas as gpd
-    except ImportError:
-        print("✗ Falta geopandas. Instálase no workflow.", file=sys.stderr)
-        sys.exit(1)
-
-    import requests
-
     DATA_DIR.mkdir(exist_ok=True)
+    print("Descargando capa municipal do WFS do IGN...")
 
-    gdf = None
-    for url in FONTES:
+    try:
+        req = urllib.request.Request(WFS_URL, headers={"User-Agent": "VOST-Galicia IRDI bot"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            datos = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Erro descargando WFS IGN: {e}", file=sys.stderr)
+        # Plan B: usar o endpoint ATOM do IGN para límites municipais
         try:
-            print(f"➤ Descargando capa municipal: {url}")
-            gdf = gpd.read_file(url)
-            print(f"  Cargados {len(gdf)} rexistros")
-            break
-        except Exception as e:
-            print(f"  ✗ Fallou: {e}", file=sys.stderr)
-            continue
+            print("Tentando fonte alternativa...")
+            url_alt = "https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/spain-comunidad.geojson"
+            req2 = urllib.request.Request(url_alt, headers={"User-Agent": "VOST-Galicia"})
+            with urllib.request.urlopen(req2, timeout=30) as r:
+                datos = json.loads(r.read().decode("utf-8"))
+        except Exception as e2:
+            print(f"Tampouco a alternativa: {e2}", file=sys.stderr)
+            sys.exit(1)
 
-    if gdf is None:
-        print("✗ Non se puido descargar a capa municipal de ningunha fonte.",
-              file=sys.stderr)
-        print("  Sube manualmente data/concellos_galicia.geojson (EPSG:4326).",
-              file=sys.stderr)
-        sys.exit(1)
+    total = len(datos.get("features", []))
+    print(f"  Descargados {total} rexistros")
 
-    # Detectar campo de código INE
-    campos = {c.upper(): c for c in gdf.columns}
-    cod_campo = None
-    for posible in ("COD_INE", "CODIGOINE", "CMUN", "NATCODE", "INE", "COD_MUN",
-                    "CODE", "ID", "CODIGO"):
-        if posible in campos:
-            cod_campo = campos[posible]
-            break
+    # Filtrar Galicia
+    galicia = []
+    for feat in datos.get("features", []):
+        props = feat.get("properties", {})
+        # Buscar código de provincia en varios campos posibles
+        cod = str(props.get("codProvincia", props.get("codMunicipio", props.get("NATCODE", props.get("id", ""))))).zfill(5)
+        prov = cod[:2] if len(cod) >= 2 else ""
+        if prov in PROVINCIAS:
+            # Normalizar propiedades
+            nome = props.get("nameUnit", props.get("nombre", props.get("name", "")))
+            nova_feat = {
+                "type": "Feature",
+                "geometry": simplificar_geometria(feat.get("geometry")),
+                "properties": {
+                    "NAMEUNIT": nome,
+                    "codMunicipio": cod,
+                    "provincia": prov,
+                }
+            }
+            galicia.append(nova_feat)
 
-    # Filtrar Galicia pola provincia (2 primeiros díxitos do código INE)
-    if cod_campo:
-        def es_galicia(v):
-            s = str(v).zfill(5)
-            return s[:2] in PROVINCIAS_GALICIA
-        gdf_gal = gdf[gdf[cod_campo].apply(es_galicia)].copy()
-        print(f"  Filtrados {len(gdf_gal)} concellos de Galicia por código INE")
-    else:
-        # Sen código: tentar por nome de provincia/comunidade
-        col_ca = None
-        for posible in ("acom_name", "CCAA", "comunidad", "autonomia"):
-            if posible in gdf.columns:
-                col_ca = posible
-                break
-        if col_ca:
-            gdf_gal = gdf[gdf[col_ca].astype(str).str.contains("alic", case=False, na=False)].copy()
-            print(f"  Filtrados {len(gdf_gal)} concellos de Galicia por nome de CA")
-        else:
-            print("  ⚠️ Non se atopou campo de código nin de CA; gárdase todo.",
-                  file=sys.stderr)
-            gdf_gal = gdf
+    if not galicia:
+        # Se non filtramos nada, gardar todos e aceptar que o cruce irá por nome
+        print("Non se puido filtrar por provincia, gardando todos os rexistros", file=sys.stderr)
+        galicia = datos.get("features", [])
 
-    # Pasar a EPSG:4326 (lon/lat) para Leaflet
-    if gdf_gal.crs and gdf_gal.crs.to_epsg() != 4326:
-        gdf_gal = gdf_gal.to_crs(4326)
+    gj = {"type": "FeatureCollection", "features": galicia}
+    with open(SAIDA, "w", encoding="utf-8") as f:
+        json.dump(gj, f, ensure_ascii=False)
 
-    # Simplificar xeometría para aliviar peso (tolerancia en graos ~ 50 m)
-    gdf_gal["geometry"] = gdf_gal.geometry.simplify(0.0005, preserve_topology=True)
-
-    gdf_gal.to_file(SAIDA, driver="GeoJSON")
     tamano = SAIDA.stat().st_size / 1024
-    print(f"✓ Gardado {SAIDA.name} · {len(gdf_gal)} concellos · {tamano:.0f} KB")
+    print(f"Gardados {len(galicia)} concellos en {SAIDA.name} ({tamano:.0f} KB)")
 
 
 if __name__ == "__main__":
