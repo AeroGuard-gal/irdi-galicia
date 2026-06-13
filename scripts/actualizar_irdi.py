@@ -128,15 +128,16 @@ def extraer_ajax(session, dia_tab, dom_id):
             "view_base_path": "",
             "view_dom_id": dom_id,
             "pager_element": "0",
-            "page": str(page),
             "_drupal_ajax": "1",
             "ajax_page_state[theme]": "w_pormrm_bootstrap",
             "ajax_page_state[theme_token]": "",
             "ajax_page_state[libraries]": "",
         }
         try:
+            # En Drupal Views AJAX, o número de páxina vai como parámetro GET na URL
+            ajax_url = f"{AJAX}?page={page}" if page > 0 else AJAX
             r = session.post(
-                AJAX,
+                ajax_url,
                 data=params,
                 headers={
                     "X-Requested-With": "XMLHttpRequest",
