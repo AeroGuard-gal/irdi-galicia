@@ -212,24 +212,29 @@ def scrape():
             if ajax_views: dom_id = list(ajax_views.keys())[0]
         except: pass
 
-    # 2. Dia 1 por paxinación normal (xa está no HTML)
-    filas_d1 = extraer_paginado(session, html, "dia_1")
-    if filas_d1:
-        resultado["dias"]["dia_1"] = filas_d1
-        print(f"  dia_1 TOTAL: {len(filas_d1)} concellos")
-
-    # 3. Días 2,3,4 por AJAX (non están no HTML inicial)
-    for dia in [d for d in dias if d != "dia_1"]:
+    # 2. Todos os días: primeiro tentamos AJAX (máis fiable), fallback a HTML para dia_1
+    for dia in dias:
         filas = []
+
+        # Tentativa AJAX (funciona para todos os días incluído dia_1)
         if dom_id:
             filas = extraer_ajax(session, dia, dom_id)
-        # Sen AJAX non hai datos reais para este día
-        if not filas:
-            print(f"  {dia}: sen datos AJAX, día omitido", file=sys.stderr)
+            if filas:
+                print(f"  {dia} TOTAL (AJAX): {len(filas)} concellos")
+
+        # Fallback HTML só para dia_1 se AJAX fallou
+        if not filas and dia == "dia_1":
+            print(f"  dia_1: AJAX fallou, tentando HTML...")
+            filas = extraer_paginado(session, html, "dia_1")
+            if filas:
+                print(f"  dia_1 TOTAL (HTML): {len(filas)} concellos")
+
         if filas:
             resultado["dias"][dia] = filas
-            print(f"  {dia} TOTAL: {len(filas)} concellos")
-        time.sleep(0.5)
+        else:
+            print(f"  {dia}: sen datos, omitido", file=sys.stderr)
+
+        time.sleep(0.4)
 
     return resultado
 
