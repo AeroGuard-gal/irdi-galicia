@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Actualizar IRDI · Índice de Risco Diario de Incendios de Galicia
-"""
 
 import json
 import re
@@ -15,19 +12,18 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-BASE = "https://mediorural.xunta.gal"
 URL = "https://mediorural.xunta.gal/es/temas/defensa-monte/irdi"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CONCELLOS_GEOJSON = DATA_DIR / "concellos_galicia.geojson"
 
 NIVEIS = {
-    "baixo":     {"valor": 1, "cor": "#2ECC71", "etiqueta": "Baixo"},
-    "bajo":      {"valor": 1, "cor": "#2ECC71", "etiqueta": "Baixo"},
-    "moderado":  {"valor": 2, "cor": "#F1C40F", "etiqueta": "Moderado"},
-    "alto":      {"valor": 3, "cor": "#E67E22", "etiqueta": "Alto"},
-    "moi alto":  {"valor": 4, "cor": "#E74C3C", "etiqueta": "Moi alto"},
-    "muy alto":  {"valor": 4, "cor": "#E74C3C", "etiqueta": "Moi alto"},
-    "extremo":   {"valor": 5, "cor": "#8E44AD", "etiqueta": "Extremo"},
+    "baixo":    {"valor": 1, "cor": "#2ECC71", "etiqueta": "Baixo"},
+    "bajo":     {"valor": 1, "cor": "#2ECC71", "etiqueta": "Baixo"},
+    "moderado": {"valor": 2, "cor": "#F1C40F", "etiqueta": "Moderado"},
+    "alto":     {"valor": 3, "cor": "#E67E22", "etiqueta": "Alto"},
+    "moi alto": {"valor": 4, "cor": "#E74C3C", "etiqueta": "Moi alto"},
+    "muy alto": {"valor": 4, "cor": "#E74C3C", "etiqueta": "Moi alto"},
+    "extremo":  {"valor": 5, "cor": "#8E44AD", "etiqueta": "Extremo"},
 }
 
 HEADERS = {
@@ -128,25 +124,26 @@ def scrape():
     if not dias:
         dias = ["dia_1", "dia_2", "dia_3", "dia_4"]
 
+    # Percorrer TODAS as páxinas de cada día (50 concellos por páxina)
     for dia in dias:
-        filas = extraer_filas(html, dia)
-        if filas:
-            resultado["dias"][dia] = filas
-
-    if len(resultado["dias"]) <= 1:
-        for i, dia in enumerate(dias):
-            if dia in resultado["dias"]:
-                continue
-            for params in ({"dia": dia}, {"page": i}, {"dia": dia, "ajax": 1}):
-                try:
-                    r = session.get(URL, params=params, timeout=30, verify=False)
-                    filas = extraer_filas(r.text, dia)
-                    if filas:
-                        resultado["dias"][dia] = filas
-                        break
-                except Exception:
-                    continue
-                time.sleep(0.5)
+        filas_dia = []
+        for page in range(0, 20):
+            params = {"page": page}
+            try:
+                r = session.get(URL, params=params, timeout=30, verify=False)
+                filas = extraer_filas(r.text, dia)
+            except Exception:
+                break
+            if not filas:
+                break
+            filas_dia.extend(filas)
+            print(f"  {dia} pax {page}: {len(filas)} concellos")
+            if len(filas) < 50:
+                break
+            time.sleep(0.3)
+        if filas_dia:
+            resultado["dias"][dia] = filas_dia
+            print(f"  {dia} TOTAL: {len(filas_dia)} concellos")
 
     return resultado
 
@@ -223,14 +220,14 @@ def main():
         print("Non se obtiveron datos do IRDI.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"  Dias obtidos: {', '.join(datos['dias'].keys())}")
+    print(f"Dias obtidos: {', '.join(datos['dias'].keys())}")
     indice = cargar_concellos()
-    print(f"  Concellos na capa municipal: {len(indice)}")
+    print(f"Concellos na capa municipal: {len(indice)}")
 
     estado = {
         "actualizacion_fonte": datos.get("actualizacion"),
         "xerado": datetime.now(timezone.utc).isoformat(),
-        "dias_dispoñibles": [],
+        "dias_disponibles": [],
     }
 
     for dia, filas in datos["dias"].items():
@@ -246,8 +243,8 @@ def main():
         saida = DATA_DIR / f"irdi_{dia}.geojson"
         with open(saida, "w", encoding="utf-8") as f:
             json.dump(gj, f, ensure_ascii=False)
-        estado["dias_dispoñibles"].append(dia)
-        print(f"  OK {saida.name} ({len(filas)} concellos)")
+        estado["dias_disponibles"].append(dia)
+        print(f"OK {saida.name} ({len(filas)} concellos)")
 
     with open(DATA_DIR / "irdi_meta.json", "w", encoding="utf-8") as f:
         json.dump(estado, f, ensure_ascii=False, indent=2)
