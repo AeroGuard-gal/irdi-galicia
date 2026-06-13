@@ -39,7 +39,7 @@
       font-size: 0.85rem; font-weight: 600; cursor: pointer;
       transition: all 0.15s;
     }
-    .dias button.activo { background: var(--laranxa); color: #fff; border-color: var(--laranxa); }
+    .dias button.activo { background: var(--laranxa) !important; color: #14100c !important; border-color: var(--laranxa) !important; font-weight: 800; }
     .dias button small { display: block; font-weight: 400; font-size: 0.68rem; opacity: 0.85; }
 
     #map { flex: 1; background: var(--fondo); }
@@ -60,6 +60,25 @@
     .leaflet-popup-tip { background: var(--panel); }
     .popup-concello { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
     .popup-risco { font-size: 0.9rem; }
+
+    .info-actualizacion {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 8px 16px;
+      font-size: 0.74rem;
+      color: var(--texto-suave);
+      background: var(--panel);
+      border-top: 1px solid var(--bordo);
+    }
+    .info-meta {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .info-fonte { color: #6db3ff; }
+    .info-descarga { color: var(--texto-suave); }
+    .info-capa { color: var(--texto-suave); }
 
     @media (max-width: 600px) {
       .lenda { bottom: 90px; right: 8px; padding: 10px; font-size: 0.74rem; }
@@ -83,17 +102,20 @@
     <div class="dias" id="dias"></div>
 
     <div id="map"></div>
-    <div class="info-actualizacion" id="info">Cargando datos…</div>
+    <div class="info-actualizacion">
+    <div id="info-meta" class="info-meta">Cargando metadatos…</div>
+    <div id="info" class="info-capa"></div>
+  </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const NIVEIS = [
-      { v: 1, cor: '#2ECC71', txt: 'Baixo' },
-      { v: 2, cor: '#F1C40F', txt: 'Moderado' },
-      { v: 3, cor: '#E67E22', txt: 'Alto' },
-      { v: 4, cor: '#E74C3C', txt: 'Moi alto' },
-      { v: 5, cor: '#8E44AD', txt: 'Extremo' },
+      { v: 1, cor: '#0033CC', txt: 'Baixo' },
+      { v: 2, cor: '#33CC00', txt: 'Moderado' },
+      { v: 3, cor: '#FFCC00', txt: 'Alto' },
+      { v: 4, cor: '#FF6600', txt: 'Moi alto' },
+      { v: 5, cor: '#CC0000', txt: 'Extremo' },
     ]
     const DIAS = [
       { id: 'dia_1', nome: 'Hoxe' },
@@ -125,6 +147,25 @@
       )
       layer.on('mouseover', () => layer.setStyle({ weight: 2.5, fillOpacity: 0.8 }))
       layer.on('mouseout', () => layer.setStyle({ weight: 1, fillOpacity: 0.65 }))
+    }
+
+    // Cargar metadatos de actualización
+    async function cargarMeta() {
+      try {
+        const resp = await fetch(`${RUTA_DATOS}/irdi_meta.json?t=${Date.now()}`)
+        if (!resp.ok) return
+        const meta = await resp.json()
+        const el = document.getElementById('info-meta')
+        if (!el) return
+        const xerado = meta.xerado ? new Date(meta.xerado) : null
+        const fonte = meta.actualizacion_fonte || '—'
+        const agoraMs = Date.now()
+        const diffH = xerado ? Math.round((agoraMs - xerado.getTime()) / 3600000) : null
+        const antigüidade = diffH === null ? '' : diffH < 1 ? ' · actualizado agora mesmo' : diffH < 24 ? ` · fai ${diffH}h` : ` · fai ${Math.round(diffH/24)} días`
+        el.innerHTML =
+          `<span class="info-fonte">📅 IRDI Medio Rural: <strong>${fonte}</strong></span>` +
+          `<span class="info-descarga">⬇️ Última descarga: <strong>${xerado ? xerado.toLocaleString('gl-ES', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</strong>${antigüidade}</span>`
+      } catch(e) { /* silencioso */ }
     }
 
     async function cargarDia(diaId) {
@@ -179,7 +220,11 @@
     }
     lenda.addTo(map)
 
-    // Carga inicial
+    // Carga inicial: forzar o primeiro botón como activo
+    const botonsdia = document.querySelectorAll('.dias button')
+    botonsdia.forEach(b => b.classList.remove('activo'))
+    if (botonsdia[0]) botonsdia[0].classList.add('activo')
+    cargarMeta()
     cargarDia('dia_1')
   </script>
 </body>
