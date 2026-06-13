@@ -118,6 +118,7 @@ def extraer_paginado(session, html_inicial, dia_tab):
 def extraer_ajax(session, dia_tab, dom_id):
     """Usa o endpoint AJAX de Drupal Views para cargar una pestana."""
     filas_dia = []
+    nomes_vistos = set()  # Para detectar cando o servidor repite datos
     for page in range(0, 20):
         params = {
             "view_name": "tabla_irdi",
@@ -146,7 +147,6 @@ def extraer_ajax(session, dia_tab, dom_id):
                 timeout=30,
                 verify=False
             )
-            # A resposta é un array JSON de comandos Drupal AJAX
             data = r.json()
             html_frag = ""
             for cmd in data:
@@ -154,12 +154,19 @@ def extraer_ajax(session, dia_tab, dom_id):
                     html_frag += cmd.get("data", "")
             filas = extraer_filas(f"<div id='{dia_tab}'>{html_frag}</div>", dia_tab)
             if not filas:
-                # tentar parsear directamente o fragmento
                 filas = extraer_filas(html_frag, dia_tab)
-            if not filas: break
+            if not filas:
+                break
+            # Detectar páxina repetida (o servidor segue devolvendo a última páxina)
+            nomes_pax = frozenset(f["concello"] for f in filas)
+            if nomes_pax in nomes_vistos:
+                print(f"  {dia_tab} AJAX pax {page}: datos repetidos, parando")
+                break
+            nomes_vistos.add(nomes_pax)
             filas_dia.extend(filas)
             print(f"  {dia_tab} AJAX pax {page}: {len(filas)} concellos")
-            if len(filas) < 50: break
+            if len(filas) < 50:
+                break
             time.sleep(0.3)
         except Exception as e:
             print(f"  {dia_tab} AJAX pax {page} erro: {e}", file=sys.stderr)
