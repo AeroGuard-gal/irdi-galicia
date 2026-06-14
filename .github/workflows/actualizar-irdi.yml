@@ -2,7 +2,7 @@ name: Actualizar IRDI Galicia
 
 on:
   schedule:
-    - cron: "0 7 * * *"
+    - cron: "0 8 * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,34 +13,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Descargar o repositorio
-        run: |
-          git clone https://x-access-token:${{ github.token }}@github.com/${{ github.repository }} .
-          git config user.name "IRDI bot"
-          git config user.email "actions@github.com"
+        uses: actions/checkout@v4
 
-      - name: Instalar dependencias Python
-        run: |
-          python3 -m pip install --upgrade pip
-          pip3 install requests beautifulsoup4 geopandas
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      - name: Preparar capa municipal (só se non existe)
+      - name: Instalar dependencias
         run: |
-          if [ ! -f data/concellos_galicia.geojson ]; then
-            python3 scripts/preparar_concellos.py || echo "Aviso: revisar capa municipal"
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Verificar capa municipal
+        run: |
+          if [ -f data/concellos_galicia.geojson ]; then
+            echo "✓ Capa municipal presente"
           else
-            echo "Capa municipal xa presente."
+            echo "✗ ERRO: falta data/concellos_galicia.geojson"
+            exit 1
           fi
 
       - name: Actualizar datos do IRDI
-        run: python3 scripts/actualizar_irdi.py
-        continue-on-error: true
+        run: python scripts/actualizar_irdi.py
 
-      - name: Facer commit dos GeoJSON
+      - name: Facer commit dos GeoJSON actualizados
         run: |
-          git add data/*.geojson data/irdi_meta.json 2>/dev/null || true
+          git config user.name "IRDI bot"
+          git config user.email "actions@github.com"
+          git add data/irdi_dia_*.geojson data/irdi_meta.json
           if git diff --staged --quiet; then
             echo "Sen cambios."
           else
-            git commit -m "Actualización IRDI [$(date +'%Y-%m-%d')]"
+            git commit -m "IRDI actualizado [$(date +'%Y-%m-%d %H:%M UTC')]"
             git push
           fi
