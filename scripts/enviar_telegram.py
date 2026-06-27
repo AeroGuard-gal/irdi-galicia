@@ -115,7 +115,7 @@ def pegar_logos_dereita(img: Image.Image,
     img = img.convert("RGBA")
     w = img.width
 
-    logos_nomes = ["logo-vost-dark.svg", "logo-alvora.svg"]
+    logos_nomes = ["logo-vost-dark.svg"]
     logos = []
     for nome in logos_nomes:
         l = cargar_logo_pil(nome, alto_px)
