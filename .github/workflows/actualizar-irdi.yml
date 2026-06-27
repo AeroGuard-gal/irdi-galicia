@@ -1,6 +1,8 @@
 name: Actualizar IRDI Galicia
 
 on:
+  schedule:
+    - cron: "0 8 * * *"   # 08:00 UTC · 09:00/10:00 hora española
   workflow_dispatch:       # execución manual dende GitHub
 
 permissions:
@@ -17,10 +19,13 @@ jobs:
           git config user.name "IRDI bot"
           git config user.email "actions@github.com"
 
-      - name: Instalar dependencias
+      - name: Instalar dependencias do sistema
+        run: sudo apt-get install -y libcairo2-dev pkg-config
+
+      - name: Instalar dependencias Python
         run: |
           python3 -m pip install --upgrade pip
-          pip3 install requests beautifulsoup4 geopandas matplotlib
+          pip3 install requests beautifulsoup4 geopandas matplotlib cairosvg Pillow
 
       - name: Verificar capa municipal
         run: |
