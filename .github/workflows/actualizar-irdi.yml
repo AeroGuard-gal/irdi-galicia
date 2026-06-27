@@ -2,8 +2,8 @@ name: Actualizar IRDI Galicia
 
 on:
   schedule:
-    - cron: "0 8 * * *"
-  workflow_dispatch:
+    - cron: "0 8 * * *"   # 08:00 UTC · 09:00/10:00 hora española
+  workflow_dispatch:       # execución manual dende GitHub
 
 permissions:
   contents: write
@@ -11,6 +11,7 @@ permissions:
 jobs:
   actualizar:
     runs-on: ubuntu-latest
+
     steps:
       - name: Descargar o repositorio
         run: |
@@ -21,7 +22,7 @@ jobs:
       - name: Instalar dependencias
         run: |
           python3 -m pip install --upgrade pip
-          pip3 install requests beautifulsoup4
+          pip3 install requests beautifulsoup4 geopandas matplotlib
 
       - name: Verificar capa municipal
         run: |
@@ -39,8 +40,14 @@ jobs:
         run: |
           git add data/irdi_dia_*.geojson data/irdi_meta.json
           if git diff --staged --quiet; then
-            echo "Sen cambios."
+            echo "Sen cambios nos datos."
           else
             git commit -m "IRDI actualizado [$(date +'%Y-%m-%d %H:%M UTC')]"
             git push
           fi
+
+      - name: Enviar mapa a Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 scripts/enviar_telegram.py
