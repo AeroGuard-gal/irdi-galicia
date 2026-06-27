@@ -26,6 +26,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.patheffects as pe
+import matplotlib.image as mpimg
+from PIL import Image
+import cairosvg
 import requests
 
 # ── Rutas ────────────────────────────────────────────────────────────────────
@@ -75,6 +78,43 @@ DIAS_NOMES = {
     "dia_3": "Pasado mañá",
     "dia_4": "En 3 días",
 }
+
+# ── Logos ─────────────────────────────────────────────────────────────────────
+
+def cargar_logo(nome_svg: str) -> Image.Image | None:
+    """Converte un SVG do repo a PIL Image (RGBA)."""
+    ruta = BASE_DIR / nome_svg
+    if not ruta.exists():
+        print(f"  AVISO: non existe logo {ruta}", file=sys.stderr)
+        return None
+    try:
+        png_bytes = cairosvg.svg2png(url=str(ruta), output_width=300)
+        return Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+    except Exception as e:
+        print(f"  AVISO: non se puido cargar {nome_svg}: {e}", file=sys.stderr)
+        return None
+
+
+def pegar_logo(fig, logo_img: Image.Image, x: float, y: float,
+               alto_in: float, alpha: float = 0.85):
+    """Pega un logo PIL na figura en coordenadas de figura (0-1),
+    escalado para ter `alto_in` polgadas de alto."""
+    dpi = fig.dpi
+    alto_px  = int(alto_in * dpi)
+    ratio    = logo_img.width / logo_img.height
+    ancho_px = int(alto_px * ratio)
+    logo_r   = logo_img.resize((ancho_px, alto_px), Image.LANCZOS)
+
+    # Aplicar alpha
+    arr = list(logo_r.split())
+    arr[3] = arr[3].point(lambda p: int(p * alpha))
+    logo_r = Image.merge("RGBA", arr)
+
+    # Converter a array e pegar
+    arr_np = __import__("numpy").array(logo_r)
+    fig.figimage(arr_np, xo=int(x * fig.get_figwidth() * dpi),
+                 yo=int(y * fig.get_figheight() * dpi),
+                 origin="upper", zorder=10)
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 
@@ -191,9 +231,11 @@ def debuxar_mapa(ax, gdf: gpd.GeoDataFrame, titulo: str, mostrar_lenda: bool = T
 def xerar_imaxe_dia1(gdf: gpd.GeoDataFrame, meta: dict) -> bytes:
     data   = data_formatted(meta)
     niveis = contar_niveis(gdf)
-    nivel_max = max((v for v in niveis if v > 0), default=0)
-    cor_max   = CORES.get(nivel_max, CORES[0])
-    et_max    = ETIQUETAS.get(nivel_max, "Sen dato")
+    media, et_media, em_media = nivel_global(gdf)
+    cor_media = CORES.get(
+        min(range(6), key=lambda v: abs(v - media) if v > 0 else 99),
+        CORES[2]
+    )
 
     # Calcular proporción natural do mapa en UTM para non achatalo
     bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
@@ -237,12 +279,12 @@ def xerar_imaxe_dia1(gdf: gpd.GeoDataFrame, meta: dict) -> bytes:
     ax_b.set_axis_off()
     ax_b.axhline(y=0.97, color=COR_BORDO, linewidth=0.8)
 
-    ax_b.text(0.03, 0.65, "Nivel máximo:",
+    ax_b.text(0.03, 0.65, "Nivel global:",
               ha="left", va="center", fontsize=8.5,
               color=COR_SUAVE, transform=ax_b.transAxes)
-    ax_b.text(0.03, 0.28, et_max.upper(),
-              ha="left", va="center", fontsize=18,
-              fontweight="bold", color=cor_max,
+    ax_b.text(0.03, 0.28, f"{et_media.upper()}  {media:.1f}/5",
+              ha="left", va="center", fontsize=15,
+              fontweight="bold", color=cor_media,
               transform=ax_b.transAxes,
               path_effects=[pe.withStroke(linewidth=3, foreground=BG_PANEL)])
 
@@ -261,16 +303,44 @@ def xerar_imaxe_dia1(gdf: gpd.GeoDataFrame, meta: dict) -> bytes:
         if x > 0.95:
             break
 
-    ax_b.text(0.99, 0.18, "VOST Galicia × ALVORA",
-              ha="right", va="center", fontsize=7,
-              color=COR_SUAVE, transform=ax_b.transAxes)
+    # Quitar texto de marca e poñer logos reais
+    logo_vost   = cargar_logo("logo-vost-dark.svg")
+    logo_alvora = cargar_logo("logo-alvora.svg")
 
+    # Gardamos primeiro para coñecer as dimensións finais
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
                 facecolor=BG_FIGURE, pad_inches=0.04)
-    plt.close(fig)
+
+    # Pegamos logos sobre o PNG xa renderizado con PIL
     buf.seek(0)
-    return buf.read()
+    img_final = Image.open(buf).convert("RGBA")
+    w, h = img_final.size
+    barra_px = int(h * barra_h)   # altura da barra en píxeles
+
+    marxe_d = 18
+    alto_logo = int(barra_px * 0.38)
+    y_logo    = int(h * (1 - barra_h) + (barra_px - alto_logo) // 2)
+
+    for logo in [logo_alvora, logo_vost]:
+        if logo is None:
+            continue
+        ratio  = logo.width / logo.height
+        ancho  = int(alto_logo * ratio)
+        logo_r = logo.resize((ancho, alto_logo), Image.LANCZOS)
+        # Alpha 85%
+        arr = list(logo_r.split())
+        arr[3] = arr[3].point(lambda p: int(p * 0.85))
+        logo_r = Image.merge("RGBA", arr)
+        x_logo = w - marxe_d - ancho
+        img_final.paste(logo_r, (x_logo, y_logo), logo_r)
+        marxe_d += ancho + 12
+
+    out = io.BytesIO()
+    img_final.convert("RGB").save(out, format="PNG")
+    plt.close(fig)
+    out.seek(0)
+    return out.read()
 
 
 def xerar_imaxe_3dias(gdfs: dict, meta: dict) -> bytes:
@@ -316,20 +386,50 @@ def xerar_imaxe_3dias(gdfs: dict, meta: dict) -> bytes:
     marxe_l = 0.02
     for i, (dia, gdf) in enumerate(pares):
         nome  = DIAS_NOMES.get(dia, dia)
-        nivel_max = max((int(v) for v in gdf["risco_valor"] if v == v and v > 0), default=0)
-        et_max = ETIQUETAS.get(nivel_max, "Sen dato")
-        subtit = f"{nome}  ·  Máx: {et_max}"
+        media_d, et_media_d, _ = nivel_global(gdf)
+        subtit = f"{nome}  ·  Nivel global: {et_media_d} ({media_d:.1f}/5)"
 
         ax = fig.add_axes([marxe_l + i * ancho, 0, ancho - 0.01, 1 - titulo_frac])
         ax.set_facecolor(COR_MAR)
         debuxar_mapa(ax, gdf, subtit, mostrar_lenda=(i == 0))
 
+    # Quitar texto "VOST Galicia × ALVORA" do subtítulo e poñer logos reais
+    ax_t.texts[-1].set_text(f"Galicia · {data}  ·  Fonte: Medio Rural, Xunta de Galicia")
+
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=130, bbox_inches="tight",
                 facecolor=BG_FIGURE, pad_inches=0.04)
-    plt.close(fig)
+
     buf.seek(0)
-    return buf.read()
+    img_final = Image.open(buf).convert("RGBA")
+    w, h = img_final.size
+    titulo_px = int(h * titulo_frac)
+
+    logo_vost   = cargar_logo("logo-vost-dark.svg")
+    logo_alvora = cargar_logo("logo-alvora.svg")
+
+    marxe_d  = 18
+    alto_logo = int(titulo_px * 0.42)
+    y_logo    = (titulo_px - alto_logo) // 2
+
+    for logo in [logo_alvora, logo_vost]:
+        if logo is None:
+            continue
+        ratio  = logo.width / logo.height
+        ancho_l = int(alto_logo * ratio)
+        logo_r  = logo.resize((ancho_l, alto_logo), Image.LANCZOS)
+        arr = list(logo_r.split())
+        arr[3] = arr[3].point(lambda p: int(p * 0.85))
+        logo_r = Image.merge("RGBA", arr)
+        x_logo = w - marxe_d - ancho_l
+        img_final.paste(logo_r, (x_logo, y_logo), logo_r)
+        marxe_d += ancho_l + 12
+
+    out = io.BytesIO()
+    img_final.convert("RGB").save(out, format="PNG")
+    plt.close(fig)
+    out.seek(0)
+    return out.read()
 
 
 # ── Telegram ─────────────────────────────────────────────────────────────────
