@@ -1,3 +1,4 @@
+```yaml
 name: Actualizar IRDI Galicia
 
 on:
@@ -8,7 +9,7 @@ permissions:
 
 jobs:
   actualizar:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Descargar o repositorio
@@ -18,12 +19,24 @@ jobs:
           git config user.email "actions@github.com"
 
       - name: Instalar dependencias do sistema
-        run: sudo apt-get install -y libcairo2-dev pkg-config
+        run: |
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcairo2-dev \
+            pkg-config
 
       - name: Instalar dependencias Python
         run: |
           python3 -m pip install --upgrade pip
-          pip3 install requests beautifulsoup4 geopandas matplotlib cairosvg Pillow
+          pip3 install \
+            requests \
+            beautifulsoup4 \
+            geopandas \
+            matplotlib \
+            cairosvg \
+            Pillow
 
       - name: Verificar capa municipal
         run: |
@@ -40,6 +53,7 @@ jobs:
       - name: Facer commit dos GeoJSON actualizados
         run: |
           git add data/irdi_dia_*.geojson data/irdi_meta.json
+
           if git diff --staged --quiet; then
             echo "Sen cambios nos datos."
           else
@@ -52,3 +66,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python3 scripts/enviar_telegram.py
+```
