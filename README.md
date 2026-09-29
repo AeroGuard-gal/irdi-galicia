@@ -1,6 +1,6 @@
 # IRDI Galicia · Risco diario de incendios
 
-Sistema que extrae cada día o IRDI de Medio Rural, crúzao coa capa municipal e publica un mapa web con 4 días de predición. Actualízase só mediante GitHub Actions (gratuíto).
+Sistema que extrae cada día o IRDI de Medio Rural, crúzao coa capa municipal e publica un mapa web con 4 días de predición. Actualízase mediante GitHub Actions e publica os datos en GitHub Pages.
 
 ---
 
@@ -145,7 +145,7 @@ Este paso integra o IRDI no mapa da app de incendios, como capa adicional.
 Para confirmar que o sistema se actualiza só cada día:
 
 1. No repositorio IRDI, vai a **Actions → Actualizar IRDI Galicia**.
-2. Verás o historial de execucións. Cada mañá ás 9:00 (hora peninsular) debería aparecer unha nova entrada verde.
+2. Verás o historial de execucións. A execución pode lanzarse manualmente desde Actions ou mediante o disparador externo que estea configurado para o repositorio.
 3. Se algunha día sae vermella, avísame e o arranxo — normalmente é que a web da Xunta cambiou algo.
 
 ---
@@ -165,11 +165,11 @@ Para confirmar que o sistema se actualiza só cada día:
 
 | Nivel | Cor |
 |---|---|
-| Baixo | 🟢 Verde |
-| Moderado | 🟡 Amarelo |
-| Alto | 🟠 Laranxa |
-| Moi alto | 🔴 Vermello |
-| Extremo | 🟣 Morado |
+| Baixo | 🔵 Azul |
+| Moderado | 🟢 Verde |
+| Alto | 🟡 Amarelo |
+| Moi alto | 🟠 Laranxa |
+| Extremo | 🔴 Vermello |
 | Sen dato | ⚫ Gris |
 
 ---

@@ -293,13 +293,31 @@ def main():
         print("Non se obtiveron datos.", file=sys.stderr); sys.exit(1)
 
     print(f"Dias obtidos: {', '.join(datos['dias'].keys())}")
+
+    dias_esperados = ["dia_1", "dia_2", "dia_3", "dia_4"]
+    faltan = [d for d in dias_esperados if d not in datos["dias"]]
+    if faltan:
+        print(f"ERRO: faltan días na fonte: {', '.join(faltan)}", file=sys.stderr)
+        sys.exit(1)
+
+    for dia in dias_esperados:
+        unicos = {f["concello_norm"] for f in datos["dias"][dia] if f.get("concello_norm")}
+        if len(unicos) < 300:
+            print(f"ERRO: {dia} só devolveu {len(unicos)} concellos únicos; non se sobrescriben os datos.", file=sys.stderr)
+            sys.exit(1)
+        if len(unicos) != 313:
+            print(f"AVISO: {dia} devolveu {len(unicos)} concellos únicos (referencia: 313).", file=sys.stderr)
+
     indice = cargar_concellos()
     print(f"Concellos na capa municipal: {len(indice)}")
+    if len(indice) != 313:
+        print(f"ERRO: a capa municipal contén {len(indice)} concellos; esperábanse 313.", file=sys.stderr)
+        sys.exit(1)
 
     estado = {"actualizacion_fonte":datos.get("actualizacion"),
               "xerado":datetime.now(timezone.utc).isoformat(),"dias_disponibles":[]}
 
-    for dia, filas in dados["dias"].items() if False else datos["dias"].items():
+    for dia, filas in datos["dias"].items():
         gj = xerar_geojson(filas, indice, dia, datos) if indice else {
             "type":"FeatureCollection","metadata":{"dia":dia,"aviso":"sen capa municipal"},
             "features":[],"taboa":filas}
