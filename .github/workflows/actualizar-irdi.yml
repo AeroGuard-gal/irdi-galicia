@@ -1,42 +1,41 @@
-```yaml
 name: Actualizar IRDI Galicia
 
 on:
-  workflow_dispatch:       # execución manual dende GitHub
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: actualizar-irdi-galicia
+  cancel-in-progress: false
+
 jobs:
   actualizar:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
 
     steps:
       - name: Descargar o repositorio
-        run: |
-          git clone https://x-access-token:${{ github.token }}@github.com/${{ github.repository }} .
-          git config user.name "IRDI bot"
-          git config user.email "actions@github.com"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
 
       - name: Instalar dependencias do sistema
         run: |
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libcairo2-dev \
-            pkg-config
+          sudo apt-get install -y --no-install-recommends libcairo2
 
       - name: Instalar dependencias Python
         run: |
-          python3 -m pip install --upgrade pip
-          pip3 install \
-            requests \
-            beautifulsoup4 \
-            geopandas \
-            matplotlib \
-            cairosvg \
-            Pillow
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
 
       - name: Verificar capa municipal
         run: |
@@ -48,16 +47,21 @@ jobs:
           fi
 
       - name: Actualizar datos do IRDI
-        run: python3 scripts/actualizar_irdi.py
+        run: python scripts/actualizar_irdi.py
+
+      - name: Validar GeoJSON xerados
+        run: python scripts/validar_saida.py
 
       - name: Facer commit dos GeoJSON actualizados
         run: |
+          git config user.name "IRDI bot"
+          git config user.email "actions@github.com"
           git add data/irdi_dia_*.geojson data/irdi_meta.json
 
           if git diff --staged --quiet; then
             echo "Sen cambios nos datos."
           else
-            git commit -m "IRDI actualizado [$(date +'%Y-%m-%d %H:%M UTC')]"
+            git commit -m "IRDI actualizado [$(date -u +'%Y-%m-%d %H:%M UTC')]"
             git push
           fi
 
@@ -65,5 +69,4 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python3 scripts/enviar_telegram.py
-```
+        run: python scripts/enviar_telegram.py
