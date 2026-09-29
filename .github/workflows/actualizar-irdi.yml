@@ -17,25 +17,32 @@ jobs:
 
     steps:
       - name: Descargar o repositorio
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        run: |
+          git clone https://x-access-token:${{ github.token }}@github.com/${{ github.repository }} .
+          git config user.name "IRDI bot"
+          git config user.email "actions@github.com"
 
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
+      - name: Comprobar Python
+        run: |
+          python3 --version
+          python3 -m pip --version
+
+      - name: Actualizar repositorios Ubuntu
+        run: |
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get update
 
       - name: Instalar dependencias do sistema
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libcairo2
+          sudo apt-get install -y --no-install-recommends \
+            libcairo2 \
+            pkg-config
 
       - name: Instalar dependencias Python
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
 
       - name: Verificar capa municipal
         run: |
@@ -47,15 +54,13 @@ jobs:
           fi
 
       - name: Actualizar datos do IRDI
-        run: python scripts/actualizar_irdi.py
+        run: python3 scripts/actualizar_irdi.py
 
       - name: Validar GeoJSON xerados
-        run: python scripts/validar_saida.py
+        run: python3 scripts/validar_saida.py
 
       - name: Facer commit dos GeoJSON actualizados
         run: |
-          git config user.name "IRDI bot"
-          git config user.email "actions@github.com"
           git add data/irdi_dia_*.geojson data/irdi_meta.json
 
           if git diff --staged --quiet; then
@@ -69,4 +74,4 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/enviar_telegram.py
+        run: python3 scripts/enviar_telegram.py
